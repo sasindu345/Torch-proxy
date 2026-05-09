@@ -1,6 +1,7 @@
 """
 GET /debug — Remote diagnostic endpoint for deployed instances.
 Shows internal state, delivery logs, and boot time.
+GET /debug/test-post?url=... — Test outbound POST connectivity.
 """
 
 from __future__ import annotations
@@ -8,7 +9,8 @@ from __future__ import annotations
 import time
 from datetime import datetime, timezone
 
-from fastapi import APIRouter
+import aiohttp
+from fastapi import APIRouter, Request, Query
 
 from app.state import state
 
@@ -68,3 +70,24 @@ async def debug_state():
         "dispatch_task_count": dispatch_task_count,
         "delivery_log": delivery_log,
     }
+
+
+@router.get("/debug/test-post")
+async def test_outbound_post(request: Request, url: str = Query(...)):
+    """Try a POST to the given URL and return the exact result."""
+    session: aiohttp.ClientSession = request.app.state.http_session
+    result = {"url": url}
+    try:
+        async with session.post(
+            url,
+            json={"event": "test", "message": "connectivity check"},
+            timeout=aiohttp.ClientTimeout(total=10),
+            ssl=False,
+        ) as resp:
+            body = await resp.text()
+            result["status"] = resp.status
+            result["body"] = body[:500]
+            result["headers"] = dict(resp.headers)
+    except Exception as e:
+        result["error"] = f"{type(e).__name__}: {e}"
+    return result

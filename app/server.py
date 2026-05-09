@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import socket
 from contextlib import asynccontextmanager
 
 import aiohttp
@@ -34,13 +33,8 @@ async def lifespan(app: FastAPI):
     logger.info("🚀 ProxyMaze starting up...")
 
     # Create a shared aiohttp session for all outgoing HTTP requests.
-    # Force IPv4 to avoid IPv6 connectivity issues on EC2.
     # Disable SSL verification at connector level (capture servers may use self-signed certs).
-    connector = aiohttp.TCPConnector(
-        ssl=False,
-        limit=0,
-        enable_cleanup_closed=True,
-    )
+    connector = aiohttp.TCPConnector(ssl=False, limit=0)
     session = aiohttp.ClientSession(connector=connector)
     app.state.http_session = session
 

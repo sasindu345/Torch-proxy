@@ -52,26 +52,28 @@ async def deliver_to_url(
     session: aiohttp.ClientSession,
     url: str,
     payload: dict,
-) -> bool:
+) -> tuple[bool, str]:
     """
     Deliver a JSON payload to a URL with retry on transient failures.
-    Returns True only when receiver accepts delivery (2xx).
+    Returns (True, "") on success, or (False, last_error_detail) on failure.
     Retries on transient/connection errors with capped backoff,
     bounded by MAX_RETRY_TOTAL_SECONDS so a permanently dead receiver
     cannot block subsequent events for the same URL.
     """
     attempt = 0
+    last_error = "no attempts made"
     started = asyncio.get_event_loop().time()
     while True:
         attempt += 1
         if asyncio.get_event_loop().time() - started > MAX_RETRY_TOTAL_SECONDS:
-            logger.error(f"Giving up on {url} after {attempt-1} attempts ({MAX_RETRY_TOTAL_SECONDS}s)")
-            return False
+            logger.error(f"Giving up on {url} after {attempt-1} attempts ({MAX_RETRY_TOTAL_SECONDS}s): {last_error}")
+            return False, f"exhausted {attempt-1} attempts in {MAX_RETRY_TOTAL_SECONDS}s — last: {last_error}"
         try:
             async with session.post(
                 url,
                 json=payload,
                 timeout=aiohttp.ClientTimeout(total=PER_ATTEMPT_TIMEOUT),
+                ssl=False,
             ) as resp:
                 # Drain body so connection can be reused
                 try:
@@ -80,9 +82,9 @@ async def deliver_to_url(
                     pass
                 if 200 <= resp.status < 300:
                     logger.info(f"Webhook delivered to {url} (status={resp.status}) on attempt {attempt}")
-                    return True
+                    return True, ""
+                last_error = f"HTTP {resp.status}"
                 if resp.status not in TRANSIENT_CODES:
-                    # Non-transient failure: still retry a few times in case it's transient
                     logger.warning(
                         f"Non-transient webhook status {resp.status} to {url}, "
                         f"attempt {attempt} — retrying anyway"
@@ -93,13 +95,15 @@ async def deliver_to_url(
                         f"attempt {attempt}"
                     )
         except (aiohttp.ClientError, asyncio.TimeoutError, TimeoutError, OSError) as e:
+            last_error = f"{type(e).__name__}: {e}"
             logger.warning(
-                f"Connection error delivering to {url}: {type(e).__name__}: {e}, "
+                f"Connection error delivering to {url}: {last_error}, "
                 f"attempt {attempt}"
             )
         except Exception as e:
+            last_error = f"{type(e).__name__}: {e}"
             logger.warning(
-                f"Unexpected error delivering to {url}: {type(e).__name__}: {e}, "
+                f"Unexpected error delivering to {url}: {last_error}, "
                 f"attempt {attempt}"
             )
 
@@ -211,7 +215,7 @@ async def _deliver_serialized(
                     _log_delivery(app_state, url, event_type, True, "already delivered (dedup)")
                     return
 
-            success = await deliver_to_url(session, url, payload)
+            success, err_detail = await deliver_to_url(session, url, payload)
 
             if success:
                 async with app_state.lock:
@@ -221,7 +225,7 @@ async def _deliver_serialized(
                         _log_delivery(app_state, url, event_type, True, "delivered OK")
             else:
                 async with app_state.lock:
-                    _log_delivery(app_state, url, event_type, False, "deliver_to_url returned False")
+                    _log_delivery(app_state, url, event_type, False, err_detail)
     except Exception as e:
         logger.error(f"_deliver_serialized error for {url}: {e}", exc_info=True)
         async with app_state.lock:
