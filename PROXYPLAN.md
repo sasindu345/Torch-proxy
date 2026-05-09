@@ -98,7 +98,7 @@ Acceptance:
 - [x] Run black-box checklist using only HTTP client calls.
 - [x] Validate exact field names, timestamps in ISO8601 UTC, counts, and IDs.
 - [x] Test edge cases: empty pool, pending-only pool, re-breach, webhook transient failures.
-- [ ] Freeze stable run command and deployment instructions.
+- [x] Freeze stable run command and deployment instructions.
 
 Acceptance:
 - [x] Rehearsal passes without manual fixes.
@@ -150,11 +150,11 @@ Acceptance:
 
 ## EC2 minimum deploy checklist (only what matters)
 
-- [ ] App runs on `0.0.0.0:8080`.
+- [x] App runs on `0.0.0.0:8080`.
 - [ ] Security group allows evaluator access to API port/path via chosen entrypoint.
-- [ ] Use process manager (`systemd`) to auto-restart on crash/reboot.
+- [x] Use process manager (`systemd`) to auto-restart on crash/reboot.
 - [ ] Verify from outside server: `/health`, `/config`, `/proxies`.
-- [ ] Keep logs available for quick incident checks.
+- [x] Keep logs available for quick incident checks.
 
 ## Execution log
 
@@ -165,7 +165,20 @@ Acceptance:
 - [x] Step 4 core completed.
 - [x] Step 5 mostly completed.
 - [~] Step 6 mostly completed.
-- [~] Step 7 mostly completed.
+- [x] Step 7 completed.
+
+## CI/CD and Hosting Progress
+
+- [x] CI workflow added (`.github/workflows/ci.yml`)
+- [x] Manual CD workflow added (`.github/workflows/deploy-ec2.yml`)
+- [x] EC2 deploy scripts added (`deploy/`)
+- [~] EC2 production activation pending manual server steps
+
+## Stable run/deploy commands
+
+- Local run: `python main.py`
+- Local health check: `curl -sS http://127.0.0.1:8080/health`
+- EC2 deploy: `bash deploy/deploy.sh`
 
 ## Current Test Confirmation (2026-05-09)
 

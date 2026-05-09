@@ -1,21 +1,21 @@
 # Torch-proxy
 
-ProxyMaze'26 challenge implementation workspace.
+ProxyMaze API service (FastAPI) with CI/CD and EC2 hosting setup.
 
-## EC2 Access (Current Working Setup)
+## Current status
 
-You are already using this working connection:
+- Core API + monitoring implemented.
+- Evaluator-focused behavior validated with curl.
+- CI workflow added.
+- Manual EC2 deploy workflow added.
+
+## EC2 SSH (your current working access)
 
 ```bash
 ssh -i /Users/oneionei/Downloads/proxymaze-key.pem ubuntu@65.1.35.247
 ```
 
-Important detail:
-- Instance OS user is `ubuntu` (not `ec2-user`).
-
-## Quick SSH Config (Recommended)
-
-Add this to your local `~/.ssh/config` file:
+Optional `~/.ssh/config`:
 
 ```sshconfig
 Host proxymaze
@@ -30,44 +30,134 @@ Then connect with:
 ssh proxymaze
 ```
 
-## One-Time Permission Fix (if needed)
-
-If SSH says the key permissions are too open:
+## Local run
 
 ```bash
-chmod 400 /Users/oneionei/Downloads/proxymaze-key.pem
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+python main.py
 ```
 
-## Basic Connection Verification
-
-After connecting, you should see prompt similar to:
+Health check:
 
 ```bash
-ubuntu@ip-172-31-35-59:~$
+curl -sS http://127.0.0.1:8080/health
 ```
 
-Then run:
+## CI/CD added
+
+### CI
+
+File: `.github/workflows/ci.yml`
+
+Runs on push to `main` and PR:
+- install dependencies
+- compile check
+- smoke-run app and curl `/health`
+
+### CD (manual trigger)
+
+File: `.github/workflows/deploy-ec2.yml`
+
+Trigger: GitHub Actions `workflow_dispatch`
+
+It SSHes to EC2, pulls `main`, and runs:
 
 ```bash
-whoami
-hostname -I
+bash deploy/deploy.sh
 ```
 
-Expected:
-- `whoami` => `ubuntu`
-- `hostname -I` => shows private instance IP(s)
+## Hosting files added
 
-## If Connection Fails, Check These First
+- `deploy/deploy.sh`
+- `deploy/ec2-setup.sh`
+- `deploy/torch-proxy.service`
+- `deploy/nginx-torch-proxy.conf`
 
-1. EC2 instance is running.
-2. Public IP is still `65.1.35.247` (it can change if no Elastic IP).
-3. Security Group allows inbound `SSH (22)` from your IP.
-4. You are using the correct key file: `proxymaze-key.pem`.
-5. Local network/firewall is not blocking outbound SSH.
+## Manual steps you must do
 
-## Project Paths (Local)
+## 1) Push code to GitHub main
 
-- Workspace root: `/Users/oneionei/MyProjects/proxy_maze`
-- App repo: `/Users/oneionei/MyProjects/proxy_maze/Torch-proxy`
-- Challenge PDF: `/Users/oneionei/MyProjects/proxy_maze/ProxyMaze26_Challenge.pdf`
+```bash
+git push origin main
+```
+
+## 2) Add GitHub Action secrets
+
+In GitHub repo: `Settings -> Secrets and variables -> Actions`, add:
+
+- `EC2_HOST` = `65.1.35.247`
+- `EC2_USER` = `ubuntu`
+- `EC2_SSH_KEY` = full private key content from `proxymaze-key.pem`
+- `REPO_SSH_URL` = SSH clone URL of this repo (example: `git@github.com:<you>/<repo>.git`)
+
+## 3) Prepare EC2 once
+
+SSH into server and run:
+
+```bash
+ssh proxymaze
+sudo mkdir -p /opt/torch-proxy
+sudo chown -R ubuntu:ubuntu /opt/torch-proxy
+```
+
+Then clone repo to `/opt/torch-proxy` (if not already cloned):
+
+```bash
+cd /opt
+git clone <YOUR_REPO_SSH_URL> torch-proxy
+cd /opt/torch-proxy
+```
+
+Run one-time setup:
+
+```bash
+bash deploy/ec2-setup.sh
+```
+
+## 4) Install systemd service file
+
+```bash
+sudo cp /opt/torch-proxy/deploy/torch-proxy.service /etc/systemd/system/torch-proxy.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now torch-proxy
+```
+
+## 5) Install nginx config
+
+```bash
+sudo cp /opt/torch-proxy/deploy/nginx-torch-proxy.conf /etc/nginx/sites-available/torch-proxy
+sudo ln -sf /etc/nginx/sites-available/torch-proxy /etc/nginx/sites-enabled/torch-proxy
+sudo rm -f /etc/nginx/sites-enabled/default
+sudo nginx -t
+sudo systemctl restart nginx
+```
+
+## 6) Verify app from server
+
+```bash
+curl -sS http://127.0.0.1:8080/health
+curl -sS http://127.0.0.1/health
+```
+
+## 7) Open inbound security group ports
+
+- `22` (SSH)
+- `80` (HTTP)
+- `443` (HTTPS, if enabling TLS later)
+
+## 8) Trigger deployment from GitHub
+
+- Open `Actions -> Deploy to EC2`
+- Click `Run workflow`
+
+## Useful ops commands
+
+```bash
+sudo systemctl status torch-proxy
+sudo journalctl -u torch-proxy -n 100 --no-pager
+sudo systemctl restart torch-proxy
+sudo systemctl status nginx
+```
 
