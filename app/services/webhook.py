@@ -52,6 +52,7 @@ async def deliver_to_url(
     """
     Deliver a JSON payload to a URL with retry on transient failures.
     Returns True only when receiver accepts delivery (2xx).
+    Retries indefinitely on transient errors (spec says "retry until delivery succeeds").
     """
     attempt = 0
     while True:
@@ -80,7 +81,7 @@ async def deliver_to_url(
                 f"attempt {attempt}"
             )
 
-        # Exponential backoff: 1s, 2s, 4s, 8s...
+        # Exponential backoff: 1s, 2s, 4s, 8s... capped at 30s
         delay = min(BASE_DELAY * (2 ** max(0, attempt - 1)), 30)
         await asyncio.sleep(delay)
 
@@ -93,6 +94,8 @@ async def dispatch_event(
 ) -> None:
     """
     Dispatch an alert event to all registered webhook receivers and integrations.
+    Builds payload from the alert object (which was synced with live pool state
+    before this function is called).
     """
     if event_type == "alert.fired":
         payload = build_fired_payload(alert)
@@ -112,7 +115,7 @@ async def dispatch_event(
     for wh in webhooks:
         tasks.append(_deliver_once(session, app_state, wh.url, payload, transition_key))
 
-    # Deliver to Slack integrations
+    # Deliver to Slack/Discord integrations
     for integ in integrations:
         if event_type in integ.events:
             if integ.type == "slack":
@@ -121,7 +124,7 @@ async def dispatch_event(
                     _deliver_once(session, app_state, integ.webhook_url, slack_payload, transition_key)
                 )
             elif integ.type == "discord":
-                discord_payload = _build_discord_payload(alert, event_type)
+                discord_payload = _build_discord_payload(alert, event_type, integ.username)
                 tasks.append(
                     _deliver_once(session, app_state, integ.webhook_url, discord_payload, transition_key)
                 )
@@ -166,7 +169,7 @@ def _build_slack_payload(alert: Alert, event_type: str, username: str) -> dict:
         ]
     else:
         text = f"✅ Alert Resolved: {alert.alert_id}"
-        color = "#00FF00"
+        color = "#36a64f"
         fields = [
             {"title": "Alert ID", "value": alert.alert_id},
             {"title": "Failure Rate", "value": "Below threshold"},
@@ -199,7 +202,7 @@ def _build_slack_payload(alert: Alert, event_type: str, username: str) -> dict:
     }
 
 
-def _build_discord_payload(alert: Alert, event_type: str) -> dict:
+def _build_discord_payload(alert: Alert, event_type: str, username: str) -> dict:
     """Build a Discord-formatted alert payload."""
     if event_type == "alert.fired":
         title = "🚨 Alert Fired"
@@ -225,6 +228,7 @@ def _build_discord_payload(alert: Alert, event_type: str) -> dict:
         ]
 
     return {
+        "username": username,
         "embeds": [
             {
                 "title": title,

@@ -12,6 +12,7 @@ from starlette.responses import Response
 from urllib.parse import urlsplit
 
 from app.state import state, ProxyEntry
+from app.services.alert_engine import evaluate_alerts
 
 router = APIRouter()
 
@@ -44,6 +45,19 @@ async def load_proxies(request: Request):
             state.proxies[proxy_id] = proxy
             new_proxies.append(proxy)
 
+        # If we replaced the pool and there's an active alert,
+        # re-evaluate immediately — the old failed proxies are gone
+        if replace:
+            event_type, alert = evaluate_alerts(state)
+            # Note: we don't dispatch webhooks here — the monitor loop will
+            # handle that after the next probe. But we DO resolve orphaned alerts.
+
+        # Sync active alert with new pool state
+        state.sync_active_alert_with_pool()
+
+    # Signal the monitor to wake up and probe immediately
+    state.proxy_change_event.set()
+
     return JSONResponse(
         content={
             "accepted": len(new_proxies),
@@ -64,6 +78,9 @@ async def get_proxies():
         up_count = sum(1 for p in proxies if p.status == "up")
         down_count = sum(1 for p in proxies if p.status == "down")
         failure_rate = (down_count / total) if total > 0 else 0.0
+
+        # Sync active alert so GET /alerts matches these numbers
+        state.sync_active_alert_with_pool()
 
         return {
             "total": total,
@@ -128,4 +145,9 @@ async def get_proxy_history(proxy_id: str):
 async def delete_proxies():
     async with state.lock:
         state.proxies.clear()
+
+        # Re-evaluate alerts immediately — pool is now empty,
+        # so any active alert must be resolved
+        evaluate_alerts(state)
+
     return Response(status_code=204)

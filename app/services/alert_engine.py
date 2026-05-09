@@ -13,6 +13,7 @@ from app.state import Alert, AppState
 def evaluate_alerts(app_state: AppState) -> tuple[str | None, Alert | None]:
     """
     Evaluate the current pool and fire/resolve alerts as needed.
+    MUST be called while holding app_state.lock.
 
     Returns:
         (event_type, alert) where event_type is "alert.fired", "alert.resolved", or None
@@ -21,8 +22,7 @@ def evaluate_alerts(app_state: AppState) -> tuple[str | None, Alert | None]:
     total = len(proxies)
 
     if total == 0:
-        # No proxies in pool — nothing to alert on
-        # But if there was an active alert and pool got cleared, resolve it
+        # No proxies in pool — resolve any active alert
         if app_state.active_alert is not None:
             return _resolve_alert(app_state)
         return None, None
@@ -43,11 +43,7 @@ def evaluate_alerts(app_state: AppState) -> tuple[str | None, Alert | None]:
             return _fire_alert(app_state, failure_rate, total, down_count, failed_ids)
         else:
             # Breach continues — update the active alert's dynamic fields
-            alert = app_state.active_alert
-            alert.failure_rate = failure_rate
-            alert.total_proxies = total
-            alert.failed_proxies = down_count
-            alert.failed_proxy_ids = failed_ids
+            _sync_alert(app_state.active_alert, failure_rate, total, down_count, failed_ids)
             return None, None
     else:
         if app_state.active_alert is not None:
@@ -91,5 +87,22 @@ def _resolve_alert(app_state: AppState) -> tuple[str, Alert]:
     alert = app_state.active_alert
     alert.status = "resolved"
     alert.resolved_at = now
+    # Clear dynamic fields on resolution
+    alert.failed_proxies = 0
+    alert.failed_proxy_ids = []
     app_state.active_alert = None
     return "alert.resolved", alert
+
+
+def _sync_alert(
+    alert: Alert,
+    failure_rate: float,
+    total: int,
+    down_count: int,
+    failed_ids: list[str],
+) -> None:
+    """Update an active alert's dynamic fields to reflect current pool state."""
+    alert.failure_rate = round(failure_rate, 4)
+    alert.total_proxies = total
+    alert.failed_proxies = down_count
+    alert.failed_proxy_ids = failed_ids

@@ -72,11 +72,14 @@ class Integration:
 class AppState:
     """
     Singleton holding all application state.
-    Thread-safe via a lock for mutations from the monitor loop and API routes.
+    Uses asyncio.Lock for safe concurrent access between monitor loop and API routes.
     """
 
     def __init__(self):
         self.lock = asyncio.Lock()
+
+        # Event to signal the monitor loop that proxies changed (wake up immediately)
+        self.proxy_change_event = asyncio.Event()
 
         # Config
         self.check_interval_seconds: int = 30
@@ -103,6 +106,33 @@ class AppState:
 
         # Monitor control
         self.monitor_task = None
+
+    def get_pool_snapshot(self) -> tuple[int, int, float, list[str]]:
+        """
+        Compute live pool metrics from current proxy state.
+        Returns (total_proxies, failed_proxies, failure_rate, failed_proxy_ids).
+        Must be called while holding self.lock.
+        """
+        proxies = list(self.proxies.values())
+        total = len(proxies)
+        failed_ids = [p.id for p in proxies if p.status == "down"]
+        down_count = len(failed_ids)
+        failure_rate = (down_count / total) if total > 0 else 0.0
+        return total, down_count, failure_rate, failed_ids
+
+    def sync_active_alert_with_pool(self) -> None:
+        """
+        Update the active alert's dynamic fields to match the live pool state.
+        This ensures GET /alerts and GET /proxies always agree.
+        Must be called while holding self.lock.
+        """
+        if self.active_alert is None:
+            return
+        total, down_count, failure_rate, failed_ids = self.get_pool_snapshot()
+        self.active_alert.total_proxies = total
+        self.active_alert.failed_proxies = down_count
+        self.active_alert.failure_rate = round(failure_rate, 4)
+        self.active_alert.failed_proxy_ids = failed_ids
 
 
 # Global singleton
