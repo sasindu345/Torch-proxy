@@ -7,7 +7,23 @@ ProxyMaze API service (FastAPI) with CI/CD and EC2 hosting setup.
 - Core API + monitoring implemented.
 - Evaluator-focused behavior validated with curl.
 - CI workflow added.
-- Manual EC2 deploy workflow added.
+- Auto deploy to EC2 enabled on push to `main` (manual trigger kept as backup).
+
+## Submission Ready
+
+- Public Base URL: `https://proxymazegmora.duckdns.org`
+- Health endpoint: `https://proxymazegmora.duckdns.org/health`
+- Config endpoint: `https://proxymazegmora.duckdns.org/config`
+- HTTPS enabled with Let's Encrypt certificate.
+- CI/CD: push to `main` triggers CI + deploy automatically.
+
+Quick verification:
+
+```bash
+curl -sS https://proxymazegmora.duckdns.org/health
+curl -sS https://proxymazegmora.duckdns.org/config
+bash deploy/smoke-test.sh https://proxymazegmora.duckdns.org
+```
 
 ## EC2 SSH (your current working access)
 
@@ -182,4 +198,4 @@ This validates core evaluator endpoints:
 
 1. Keep EC2 Security Group `SSH 22` reachable from GitHub Actions runners (or SSH deploy times out).
 2. Revoke leaked PATs immediately and replace with a fresh token in `REPO_SSH_URL` secret.
-3. Trigger Deploy workflow after each push to `main`.
+3. After each push to `main`, verify GitHub Actions deploy status is green.
