@@ -65,7 +65,7 @@ Trigger: GitHub Actions `workflow_dispatch`
 It SSHes to EC2, pulls `main`, and runs:
 
 ```bash
-bash deploy/deploy.sh
+bash deploy/ec2-setup.sh
 ```
 
 ## Hosting files added
@@ -161,3 +161,23 @@ sudo systemctl restart torch-proxy
 sudo systemctl status nginx
 ```
 
+## Post-deploy smoke test
+
+Run one command from your laptop:
+
+```bash
+bash deploy/smoke-test.sh http://65.1.35.247
+```
+
+This validates core evaluator endpoints:
+- `/health`
+- `/config` (POST + GET)
+- `/proxies` (POST + GET + single + history + DELETE)
+- `/metrics`
+- `/alerts`
+
+## Manual mandatory tasks only
+
+1. Keep EC2 Security Group `SSH 22` reachable from GitHub Actions runners (or SSH deploy times out).
+2. Revoke leaked PATs immediately and replace with a fresh token in `REPO_SSH_URL` secret.
+3. Trigger Deploy workflow after each push to `main`.
