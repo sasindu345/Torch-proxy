@@ -1,4 +1,4 @@
-# ProxyMaze'26 Competition Winning Plan (Evaluator-Focused)
+# ProxyMaze Development Plan
 
 Goal: maximize evaluator score fast by implementing only what is tested and weighted most.
 
@@ -6,7 +6,7 @@ Goal: maximize evaluator score fast by implementing only what is tested and weig
 
 - [~] `90 pts` Threshold breach alerts + webhook delivery
 - [x] `45 pts` Proxy ingestion + continuous background monitoring
-- [ ] `30 pts` Re-breach lifecycle integrity
+- [x] `30 pts` Re-breach lifecycle integrity
 - [x] `30 pts` Single failure behavior
 - [x] `25 pts` Pool operations + observability
 - [x] `20 pts` Alert resolution
@@ -22,7 +22,7 @@ Passing score is `186`, target is `250+`.
 - [x] `2xx => up`, `timeout/connection error/5xx => down`.
 - [x] Alert fires at `failure_rate >= 0.20`, resolves at `< 0.20`.
 - [x] Only one active alert at a time.
-- [ ] New breach after resolve must create new `alert_id`.
+- [x] New breach after resolve must create new `alert_id`.
 - [x] `failed_proxy_ids` must exactly match currently down proxies.
 - [x] `/proxies`, `/alerts`, webhook payload must tell same story.
 - [x] Unknown JSON fields must be accepted and ignored.
@@ -54,11 +54,11 @@ Acceptance:
 - [x] Fire one alert when breach begins (`>= 0.20`).
 - [x] Keep same active alert through continuous breach (no duplicates).
 - [x] Resolve same alert when recovered (`< 0.20`).
-- [ ] Re-breach creates brand-new `alert_id`.
-- [ ] Preserve order: fired -> resolved -> fired(new).
+- [x] Re-breach creates brand-new `alert_id`.
+- [x] Preserve order: fired -> resolved -> fired(new).
 
 Acceptance:
-- [~] `/alerts` shows full lifecycle history correctly.
+- [x] `/alerts` shows full lifecycle history correctly.
 
 ## Step 4: Webhook delivery reliability (biggest score block)
 
@@ -66,7 +66,7 @@ Acceptance:
 - [x] Send JSON with `Content-Type: application/json`.
 - [x] Deliver within 60 seconds of state transition.
 - [x] Retry transient receiver failures (`500/502/503/504`) until success.
-- [~] Ensure exactly one successful delivery per transition per receiver (no duplicates).
+- [x] Ensure exactly one successful delivery per transition per receiver (no duplicates).
 
 Acceptance:
 - [x] With flaky receiver (returns 500 first), event eventually succeeds once.
@@ -81,7 +81,7 @@ Acceptance:
 - [x] `GET /metrics` returns valid non-empty JSON with required counters.
 
 Acceptance:
-- [~] All endpoints behave exactly like contract examples.
+- [x] All endpoints behave exactly like contract examples.
 
 ## Step 6: Bonus Slack + Discord (+20)
 
@@ -97,11 +97,11 @@ Acceptance:
 
 - [x] Run black-box checklist using only HTTP client calls.
 - [x] Validate exact field names, timestamps in ISO8601 UTC, counts, and IDs.
-- [~] Test edge cases: empty pool, pending-only pool, re-breach, webhook transient failures.
+- [x] Test edge cases: empty pool, pending-only pool, re-breach, webhook transient failures.
 - [ ] Freeze stable run command and deployment instructions.
 
 Acceptance:
-- [~] Rehearsal passes without manual fixes.
+- [x] Rehearsal passes without manual fixes.
 
 ## Fast execution order (no complexity)
 
@@ -144,7 +144,7 @@ Acceptance:
 - [x] `POST /webhooks` receiver gets `alert.fired`
 - [x] transient 500 on receiver retries and succeeds
 - [x] breach recovery leads to `alert.resolved`
-- [ ] re-breach creates new `alert_id`
+- [x] re-breach creates new `alert_id`
 - [x] `DELETE /proxies` clears pool but keeps alerts
 - [x] `GET /metrics` always returns valid non-empty JSON
 
@@ -161,11 +161,11 @@ Acceptance:
 - [x] Plan created.
 - [x] Step 1 completed.
 - [x] Step 2 completed.
-- [~] Step 3 in progress.
+- [x] Step 3 completed.
 - [x] Step 4 core completed.
 - [x] Step 5 mostly completed.
 - [~] Step 6 mostly completed.
-- [~] Step 7 in progress.
+- [~] Step 7 mostly completed.
 
 ## Current Test Confirmation (2026-05-09)
 
@@ -173,4 +173,6 @@ Acceptance:
 - Confirmed lifecycle: `alert.fired` generated on breach and `alert.resolved` generated on recovery.
 - Confirmed webhook reliability: transient `500` retried and then delivered successfully.
 - Confirmed payload checks: Slack and Discord required structural fields present.
-- Remaining to confirm: re-breach creates new `alert_id` and strict no-duplicate successful delivery across all retry patterns.
+- Confirmed re-breach: second breach mints a brand-new `alert_id` after resolution.
+- Confirmed lifecycle order: fired -> resolved -> fired(new) observed in sequence.
+- Confirmed no duplicate successful deliveries per transition per receiver (retries occur only until first success).
