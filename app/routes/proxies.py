@@ -9,6 +9,7 @@ DELETE /proxies             — Clear the pool, keep alerts.
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from starlette.responses import Response
+from urllib.parse import urlsplit
 
 from app.state import state, ProxyEntry
 
@@ -17,9 +18,9 @@ router = APIRouter()
 
 def _extract_proxy_id(url: str) -> str:
     """Extract proxy ID from the last path segment of the URL."""
-    # Strip trailing slashes and get the last segment
-    path = url.rstrip("/")
-    return path.split("/")[-1]
+    # Use parsed path only, so query/fragment never pollute the ID.
+    path = urlsplit(url).path.rstrip("/")
+    return path.split("/")[-1] if path else ""
 
 
 @router.post("/proxies")

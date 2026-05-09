@@ -51,7 +51,7 @@ async def deliver_to_url(
 ) -> bool:
     """
     Deliver a JSON payload to a URL with retry on transient failures.
-    Returns True on successful delivery.
+    Returns True only when receiver accepts delivery (2xx).
     """
     attempt = 0
     while True:
@@ -66,9 +66,9 @@ async def deliver_to_url(
                 if 200 <= resp.status < 300:
                     return True
                 if resp.status not in TRANSIENT_CODES:
-                    # Non-transient failure: stop
+                    # Non-transient failure: stop (not successful delivery).
                     logger.warning(f"Non-transient webhook failure ({resp.status}) to {url}")
-                    return True
+                    return False
                 # Transient failure — retry
                 logger.warning(
                     f"Transient failure ({resp.status}) delivering to {url}, "
