@@ -24,4 +24,5 @@ jobs:
             git fetch --all
             git checkout main
             git pull origin main
-            bash deploy/deploy.sh
+            # One-time/bootstrap-safe setup + deploy
+            bash deploy/ec2-setup.sh
