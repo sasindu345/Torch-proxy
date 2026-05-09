@@ -49,10 +49,15 @@ async def monitoring_loop(app_state: AppState, session: aiohttp.ClientSession) -
                 # Evaluate alert conditions
                 event_type, alert = evaluate_alerts(app_state)
 
-            # Dispatch webhook if there's a state transition
+            # Dispatch webhook if there's a state transition.
+            # dispatch_event schedules per-receiver background tasks; it returns fast
+            # so probing/state evaluation continues on the configured cadence.
             if event_type and alert:
                 logger.info(f"Alert event: {event_type} — {alert.alert_id}")
-                await dispatch_event(session, app_state, event_type, alert)
+                try:
+                    await dispatch_event(session, app_state, event_type, alert)
+                except Exception as e:
+                    logger.error(f"dispatch_event failed: {e}", exc_info=True)
 
             await asyncio.sleep(interval)
 

@@ -100,9 +100,15 @@ class AppState:
         self.webhook_deliveries: int = 0
         # Dedup successful deliveries per transition per receiver
         self.delivery_success_keys: set[str] = set()
+        # In-flight dedup: prevent concurrent dispatches for same transition+url
+        self.delivery_inflight_keys: set[str] = set()
+        # Per-URL locks to serialize delivery order (fired -> resolved -> ...)
+        self.url_locks: dict[str, asyncio.Lock] = {}
 
         # Monitor control
         self.monitor_task = None
+        # Background dispatch tasks (so we can await on shutdown)
+        self.dispatch_tasks: set = set()
 
 
 # Global singleton
