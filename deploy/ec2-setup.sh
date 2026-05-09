@@ -12,11 +12,11 @@ if [[ ! -d /opt/torch-proxy/.git ]]; then
 fi
 
 cd /opt/torch-proxy
-bash deploy/deploy.sh
-
 sudo cp deploy/torch-proxy.service /etc/systemd/system/torch-proxy.service
 sudo systemctl daemon-reload
-sudo systemctl enable --now torch-proxy
+sudo systemctl enable torch-proxy
+
+bash deploy/deploy.sh
 
 sudo cp deploy/nginx-torch-proxy.conf /etc/nginx/sites-available/torch-proxy
 sudo ln -sf /etc/nginx/sites-available/torch-proxy /etc/nginx/sites-enabled/torch-proxy
