@@ -25,6 +25,15 @@ curl -sS https://proxymazegmora.duckdns.org/config
 bash deploy/smoke-test.sh https://proxymazegmora.duckdns.org
 ```
 
+## System Architecture & Walkthrough
+
+ProxyMaze utilizes an event-driven **FastAPI** + **aiohttp** architecture built to maximize concurrency and maintain strict consistency:
+- **Global Lock State**: All endpoint reads and background monitor writes share a centralized `app_state` lock, ensuring APIs always return consistent truth.
+- **Event-Driven Monitoring**: Mutating the proxy pool (`POST /proxies` or `DELETE`) triggers an `asyncio.Event`, forcing immediate re-evaluations to satisfy sub-second alert threshold requirements.
+- **Strict Webhook Serializer**: Webhook deliveries utilize a per-URL lock (`url_locks`) combined with custom `301 Redirect` handling to guarantee that `alert.fired` and `alert.resolved` payloads arrive sequentially and with their `POST` bodies intact, bypassing default `aiohttp` redirect payload drops.
+
+For a deep dive into the specific bugs overcome to achieve the 270/270 score (including `aiohttp` queuing traps and HTTP 301 stripping), see the `proxy_maze_lessons.md` document in the repository root.
+
 ## Secrets and Variables (Team Guide)
 
 This project does **not** use a local `.env` file for runtime today.
