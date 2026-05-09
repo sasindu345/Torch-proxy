@@ -1,6 +1,11 @@
 """
 Background Monitor — continuously probes proxies on the configured cadence.
 Runs as an asyncio task, independent of API requests.
+
+KEY DESIGN:
+- Uses proxy_change_event to wake up immediately when proxies are loaded/changed
+- Probes on cadence set by check_interval_seconds
+- After probing, evaluates alerts and dispatches webhooks
 """
 
 from __future__ import annotations
@@ -21,7 +26,7 @@ logger = logging.getLogger("proxymaze.monitor")
 async def monitoring_loop(app_state: AppState, session: aiohttp.ClientSession) -> None:
     """
     Continuous monitoring loop that:
-    1. Waits check_interval_seconds
+    1. Waits for check_interval_seconds OR a proxy_change_event (whichever comes first)
     2. Probes all proxies concurrently
     3. Evaluates alert conditions
     4. Dispatches webhook events if state changed
@@ -30,24 +35,45 @@ async def monitoring_loop(app_state: AppState, session: aiohttp.ClientSession) -
 
     while True:
         try:
-            # Read interval + snapshot pool fresh each cycle so config changes apply immediately
+            # Read interval fresh each cycle so config changes apply immediately
             async with app_state.lock:
                 interval = app_state.check_interval_seconds
+
+            # Wait for either: the interval to elapse, OR a proxy change signal
+            # This ensures new proxies get checked immediately
+            try:
+                await asyncio.wait_for(
+                    app_state.proxy_change_event.wait(),
+                    timeout=interval,
+                )
+                # Event was set — proxies changed, clear it and probe immediately
+                app_state.proxy_change_event.clear()
+                logger.info("Proxy change detected — probing immediately")
+            except asyncio.TimeoutError:
+                # Normal cadence — interval elapsed, time for regular check
+                pass
+
+            # Get current proxy list
+            async with app_state.lock:
                 proxies = list(app_state.proxies.values())
                 timeout_ms = app_state.request_timeout_ms
+
             if not proxies:
-                # Keep this short so newly loaded proxies/config are picked up quickly.
-                await asyncio.sleep(1)
                 continue
 
-            # Probe all proxies
+            # Probe all proxies concurrently
             await probe_all(session, proxies, timeout_ms)
 
-            # Update metrics
+            # Update metrics and evaluate alert conditions under lock
             async with app_state.lock:
                 app_state.total_checks += len(proxies)
+
                 # Evaluate alert conditions
                 event_type, alert = evaluate_alerts(app_state)
+
+                # Sync active alert with live pool (ensures consistency between
+                # GET /alerts and GET /proxies during ongoing breach).
+                app_state.sync_active_alert_with_pool()
 
             # Dispatch webhook if there's a state transition.
             # dispatch_event schedules per-receiver background tasks; it returns fast
@@ -58,8 +84,6 @@ async def monitoring_loop(app_state: AppState, session: aiohttp.ClientSession) -
                     await dispatch_event(session, app_state, event_type, alert)
                 except Exception as e:
                     logger.error(f"dispatch_event failed: {e}", exc_info=True)
-
-            await asyncio.sleep(interval)
 
         except asyncio.CancelledError:
             logger.info("Background monitor cancelled")
