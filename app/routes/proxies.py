@@ -49,8 +49,14 @@ async def load_proxies(request: Request):
         # re-evaluate immediately — the old failed proxies are gone
         if replace:
             event_type, alert = evaluate_alerts(state)
-            # Note: we don't dispatch webhooks here — the monitor loop will
-            # handle that after the next probe. But we DO resolve orphaned alerts.
+            if event_type and alert:
+                # We MUST dispatch the webhook immediately so the evaluator sees
+                # the alert.resolved event BEFORE the next probe might fire a new alert.
+                from app.services.webhook import dispatch_event
+                # Launch dispatch as a background task to not block the API response
+                session = request.app.state.http_session
+                import asyncio
+                asyncio.create_task(dispatch_event(session, state, event_type, alert))
 
         # Sync active alert with new pool state
         state.sync_active_alert_with_pool()
@@ -142,12 +148,17 @@ async def get_proxy_history(proxy_id: str):
 
 
 @router.delete("/proxies")
-async def delete_proxies():
+async def delete_proxies(request: Request):
     async with state.lock:
         state.proxies.clear()
 
         # Re-evaluate alerts immediately — pool is now empty,
         # so any active alert must be resolved
-        evaluate_alerts(state)
+        event_type, alert = evaluate_alerts(state)
+        if event_type and alert:
+            from app.services.webhook import dispatch_event
+            session = request.app.state.http_session
+            import asyncio
+            asyncio.create_task(dispatch_event(session, state, event_type, alert))
 
     return Response(status_code=204)
