@@ -25,6 +25,57 @@ curl -sS https://proxymazegmora.duckdns.org/config
 bash deploy/smoke-test.sh https://proxymazegmora.duckdns.org
 ```
 
+## Secrets and Variables (Team Guide)
+
+This project does **not** use a local `.env` file for runtime today.
+
+Runtime configuration is managed by:
+- API endpoint `POST /config` (for `check_interval_seconds`, `request_timeout_ms`)
+- System/service files (`systemd`, `nginx`)
+- GitHub Actions secrets for CI/CD deployment
+
+### GitHub Actions secrets required
+
+Set in: `GitHub Repo -> Settings -> Secrets and variables -> Actions`
+
+- `EC2_HOST`
+  - Example: `65.1.35.247`
+  - Purpose: target server for deploy workflow.
+
+- `EC2_USER`
+  - Example: `ubuntu`
+  - Purpose: SSH user for deploy workflow.
+
+- `EC2_SSH_KEY`
+  - Value: private key content used to SSH into EC2.
+  - Purpose: authentication for GitHub Actions SSH deploy.
+
+- `REPO_SSH_URL`
+  - Current use: repository clone URL used on EC2 during deploy.
+  - If using PAT in URL, rotate token regularly.
+
+### Sensitive data policy
+
+- Do **not** commit tokens, keys, or passwords to the repository.
+- Do **not** paste PAT/keys in code, README, or issues.
+- If a token is leaked, revoke immediately and replace secret.
+
+### Optional local `.env` note
+
+If team later introduces `.env`, add:
+- `.env` to `.gitignore`
+- `.env.example` with placeholders only
+- clear variable docs in this README
+
+### What teammates need to update safely
+
+1. Pull latest `main`.
+2. Confirm GitHub secrets are present and valid.
+3. Push to `main` (auto deploy runs).
+4. Verify deploy status in Actions.
+5. Run smoke test:
+   - `bash deploy/smoke-test.sh https://proxymazegmora.duckdns.org`
+
 ## EC2 SSH (your current working access)
 
 ```bash
