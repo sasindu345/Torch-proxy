@@ -74,12 +74,27 @@ async def deliver_to_url(
                 json=payload,
                 timeout=aiohttp.ClientTimeout(total=PER_ATTEMPT_TIMEOUT),
                 ssl=False,
+                allow_redirects=False,
             ) as resp:
                 # Drain body so connection can be reused
                 try:
                     await resp.read()
                 except Exception:
                     pass
+
+                # Handle redirects manually — aiohttp converts POST→GET on
+                # 301/302 which causes HTTP 405 on the evaluator's capture server.
+                if resp.status in (301, 302, 303, 307, 308):
+                    redirect_url = resp.headers.get("Location", "")
+                    if redirect_url:
+                        logger.info(
+                            f"Redirect {resp.status} from {url} → {redirect_url}, "
+                            f"re-POSTing (attempt {attempt})"
+                        )
+                        url = redirect_url
+                        attempt -= 1  # don't count redirect as a failed attempt
+                        continue
+
                 if 200 <= resp.status < 300:
                     logger.info(f"Webhook delivered to {url} (status={resp.status}) on attempt {attempt}")
                     return True, ""
