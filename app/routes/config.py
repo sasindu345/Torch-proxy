@@ -24,13 +24,15 @@ async def set_config(request: Request):
         if "request_timeout_ms" in body:
             state.request_timeout_ms = int(body["request_timeout_ms"])
 
-        return JSONResponse(
-            content={
-                "check_interval_seconds": state.check_interval_seconds,
-                "request_timeout_ms": state.request_timeout_ms,
-            },
-            status_code=200,
-        )
+        result = {
+            "check_interval_seconds": state.check_interval_seconds,
+            "request_timeout_ms": state.request_timeout_ms,
+        }
+
+    # Wake the monitor so it immediately uses the new interval
+    state.proxy_change_event.set()
+
+    return JSONResponse(content=result, status_code=200)
 
 
 @router.get("/config")

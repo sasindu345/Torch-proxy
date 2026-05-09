@@ -6,6 +6,8 @@ GET    /proxies/{id}/history — Check history array.
 DELETE /proxies             — Clear the pool, keep alerts.
 """
 
+import asyncio
+
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from starlette.responses import Response
@@ -13,6 +15,7 @@ from urllib.parse import urlsplit
 
 from app.state import state, ProxyEntry
 from app.services.alert_engine import evaluate_alerts
+from app.services.webhook import dispatch_event
 
 router = APIRouter()
 
@@ -50,13 +53,10 @@ async def load_proxies(request: Request):
         if replace:
             event_type, alert = evaluate_alerts(state)
             if event_type and alert:
-                # We MUST dispatch the webhook immediately so the evaluator sees
-                # the alert.resolved event BEFORE the next probe might fire a new alert.
-                from app.services.webhook import dispatch_event
-                # Launch dispatch as a background task to not block the API response
                 session = request.app.state.http_session
-                import asyncio
-                asyncio.create_task(dispatch_event(session, state, event_type, alert))
+                task = asyncio.create_task(dispatch_event(session, state, event_type, alert))
+                state.dispatch_tasks.add(task)
+                task.add_done_callback(state.dispatch_tasks.discard)
 
         # Sync active alert with new pool state
         state.sync_active_alert_with_pool()
@@ -156,9 +156,9 @@ async def delete_proxies(request: Request):
         # so any active alert must be resolved
         event_type, alert = evaluate_alerts(state)
         if event_type and alert:
-            from app.services.webhook import dispatch_event
             session = request.app.state.http_session
-            import asyncio
-            asyncio.create_task(dispatch_event(session, state, event_type, alert))
+            task = asyncio.create_task(dispatch_event(session, state, event_type, alert))
+            state.dispatch_tasks.add(task)
+            task.add_done_callback(state.dispatch_tasks.discard)
 
     return Response(status_code=204)

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import socket
 from contextlib import asynccontextmanager
 
 import aiohttp
@@ -14,7 +15,7 @@ from fastapi import FastAPI
 
 from app.state import state
 from app.services.monitor import monitoring_loop
-from app.routes import health, config, proxies, alerts, webhooks, integrations, metrics
+from app.routes import health, config, proxies, alerts, webhooks, integrations, metrics, debug
 
 logging.basicConfig(
     level=logging.INFO,
@@ -32,8 +33,16 @@ async def lifespan(app: FastAPI):
     """
     logger.info("🚀 ProxyMaze starting up...")
 
-    # Create a shared aiohttp session for all outgoing HTTP requests
-    session = aiohttp.ClientSession()
+    # Create a shared aiohttp session for all outgoing HTTP requests.
+    # Force IPv4 to avoid IPv6 connectivity issues on EC2.
+    # Disable SSL verification at connector level (capture servers may use self-signed certs).
+    connector = aiohttp.TCPConnector(
+        ssl=False,
+        family=socket.AF_INET,
+        limit=100,
+        enable_cleanup_closed=True,
+    )
+    session = aiohttp.ClientSession(connector=connector)
     app.state.http_session = session
 
     # Start the background monitoring loop
@@ -71,5 +80,6 @@ def create_app() -> FastAPI:
     app.include_router(webhooks.router)
     app.include_router(integrations.router)
     app.include_router(metrics.router)
+    app.include_router(debug.router)
 
     return app

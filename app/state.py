@@ -6,6 +6,7 @@ All data lives here — no database, no persistence.
 from __future__ import annotations
 
 import asyncio
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Optional
@@ -112,6 +113,12 @@ class AppState:
         self.monitor_task = None
         # Background dispatch tasks (so we can await on shutdown)
         self.dispatch_tasks: set = set()
+
+        # Boot time for detecting restarts
+        self.boot_time: float = time.time()
+
+        # Delivery attempt log (last 200 entries) for remote debugging
+        self.delivery_log: list[dict] = []
 
     def get_pool_snapshot(self) -> tuple[int, int, float, list[str]]:
         """

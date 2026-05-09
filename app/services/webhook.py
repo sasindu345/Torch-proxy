@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from datetime import datetime, timezone
 
 import aiohttp
@@ -70,9 +71,7 @@ async def deliver_to_url(
             async with session.post(
                 url,
                 json=payload,
-                headers={"Content-Type": "application/json"},
                 timeout=aiohttp.ClientTimeout(total=PER_ATTEMPT_TIMEOUT),
-                ssl=False,  # be permissive — capture servers may use self-signed certs
             ) as resp:
                 # Drain body so connection can be reused
                 try:
@@ -176,6 +175,20 @@ def _get_url_lock(app_state: AppState, url: str) -> asyncio.Lock:
     return lock
 
 
+def _log_delivery(app_state: AppState, url: str, event: str, success: bool, detail: str) -> None:
+    """Append a delivery attempt record to the in-memory log (max 200)."""
+    entry = {
+        "ts": time.time(),
+        "url": url,
+        "event": event,
+        "success": success,
+        "detail": detail,
+    }
+    app_state.delivery_log.append(entry)
+    if len(app_state.delivery_log) > 200:
+        app_state.delivery_log[:] = app_state.delivery_log[-200:]
+
+
 async def _deliver_serialized(
     session: aiohttp.ClientSession,
     app_state: AppState,
@@ -188,12 +201,14 @@ async def _deliver_serialized(
     (e.g. alert.fired must arrive before alert.resolved at same receiver).
     Exactly-once successful delivery per transition per receiver.
     """
+    event_type = payload.get("event", "unknown")
     url_lock = _get_url_lock(app_state, url)
     try:
         async with url_lock:
             # Re-check inside lock — the previous holder may have already sent it
             async with app_state.lock:
                 if success_key in app_state.delivery_success_keys:
+                    _log_delivery(app_state, url, event_type, True, "already delivered (dedup)")
                     return
 
             success = await deliver_to_url(session, url, payload)
@@ -203,6 +218,14 @@ async def _deliver_serialized(
                     if success_key not in app_state.delivery_success_keys:
                         app_state.delivery_success_keys.add(success_key)
                         app_state.webhook_deliveries += 1
+                        _log_delivery(app_state, url, event_type, True, "delivered OK")
+            else:
+                async with app_state.lock:
+                    _log_delivery(app_state, url, event_type, False, "deliver_to_url returned False")
+    except Exception as e:
+        logger.error(f"_deliver_serialized error for {url}: {e}", exc_info=True)
+        async with app_state.lock:
+            _log_delivery(app_state, url, event_type, False, f"exception: {type(e).__name__}: {e}")
     finally:
         async with app_state.lock:
             app_state.delivery_inflight_keys.discard(success_key)
