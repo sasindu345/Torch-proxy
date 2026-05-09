@@ -56,11 +56,13 @@ Runs on push to `main` and PR:
 - compile check
 - smoke-run app and curl `/health`
 
-### CD (manual trigger)
+### CD (automatic + manual)
 
 File: `.github/workflows/deploy-ec2.yml`
 
-Trigger: GitHub Actions `workflow_dispatch`
+Trigger:
+- automatic on push to `main`
+- manual via `workflow_dispatch` (backup)
 
 It SSHes to EC2, pulls `main`, and runs:
 
@@ -147,10 +149,10 @@ curl -sS http://127.0.0.1/health
 - `80` (HTTP)
 - `443` (HTTPS, if enabling TLS later)
 
-## 8) Trigger deployment from GitHub
+## 8) Deployment trigger
 
-- Open `Actions -> Deploy to EC2`
-- Click `Run workflow`
+- Default: push to `main` and deploy runs automatically.
+- Optional manual backup: `Actions -> Deploy to EC2 -> Run workflow`.
 
 ## Useful ops commands
 
