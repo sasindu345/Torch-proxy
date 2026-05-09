@@ -17,7 +17,6 @@ from app.state import Alert, AppState
 logger = logging.getLogger("proxymaze.webhook")
 
 TRANSIENT_CODES = {500, 502, 503, 504}
-MAX_RETRIES = 10
 BASE_DELAY = 1.0  # seconds
 
 
@@ -54,7 +53,9 @@ async def deliver_to_url(
     Deliver a JSON payload to a URL with retry on transient failures.
     Returns True on successful delivery.
     """
-    for attempt in range(MAX_RETRIES):
+    attempt = 0
+    while True:
+        attempt += 1
         try:
             async with session.post(
                 url,
@@ -62,26 +63,26 @@ async def deliver_to_url(
                 headers={"Content-Type": "application/json"},
                 timeout=aiohttp.ClientTimeout(total=10),
             ) as resp:
-                if resp.status < 500 or resp.status not in TRANSIENT_CODES:
-                    # Success or non-transient error — stop retrying
+                if 200 <= resp.status < 300:
+                    return True
+                if resp.status not in TRANSIENT_CODES:
+                    # Non-transient failure: stop
+                    logger.warning(f"Non-transient webhook failure ({resp.status}) to {url}")
                     return True
                 # Transient failure — retry
                 logger.warning(
                     f"Transient failure ({resp.status}) delivering to {url}, "
-                    f"attempt {attempt + 1}/{MAX_RETRIES}"
+                    f"attempt {attempt}"
                 )
         except (aiohttp.ClientError, asyncio.TimeoutError, OSError) as e:
             logger.warning(
                 f"Connection error delivering to {url}: {e}, "
-                f"attempt {attempt + 1}/{MAX_RETRIES}"
+                f"attempt {attempt}"
             )
 
         # Exponential backoff: 1s, 2s, 4s, 8s...
-        delay = min(BASE_DELAY * (2 ** attempt), 30)
+        delay = min(BASE_DELAY * (2 ** max(0, attempt - 1)), 30)
         await asyncio.sleep(delay)
-
-    logger.error(f"Failed to deliver webhook to {url} after {MAX_RETRIES} attempts")
-    return False
 
 
 async def dispatch_event(
@@ -101,39 +102,53 @@ async def dispatch_event(
         return
 
     tasks = []
+    transition_key = f"{event_type}:{alert.alert_id}:{alert.resolved_at or alert.fired_at}"
+
+    async with app_state.lock:
+        webhooks = list(app_state.webhooks)
+        integrations = list(app_state.integrations)
 
     # Deliver to all registered webhook receivers
-    for wh in app_state.webhooks:
-        tasks.append(_deliver_and_count(session, app_state, wh.url, payload))
+    for wh in webhooks:
+        tasks.append(_deliver_once(session, app_state, wh.url, payload, transition_key))
 
     # Deliver to Slack integrations
-    for integ in app_state.integrations:
+    for integ in integrations:
         if event_type in integ.events:
             if integ.type == "slack":
                 slack_payload = _build_slack_payload(alert, event_type, integ.username)
                 tasks.append(
-                    _deliver_and_count(session, app_state, integ.webhook_url, slack_payload)
+                    _deliver_once(session, app_state, integ.webhook_url, slack_payload, transition_key)
                 )
             elif integ.type == "discord":
                 discord_payload = _build_discord_payload(alert, event_type)
                 tasks.append(
-                    _deliver_and_count(session, app_state, integ.webhook_url, discord_payload)
+                    _deliver_once(session, app_state, integ.webhook_url, discord_payload, transition_key)
                 )
 
     if tasks:
         await asyncio.gather(*tasks, return_exceptions=True)
 
 
-async def _deliver_and_count(
+async def _deliver_once(
     session: aiohttp.ClientSession,
     app_state: AppState,
     url: str,
     payload: dict,
+    transition_key: str,
 ) -> None:
-    """Deliver and increment the webhook delivery counter on success."""
+    """Deliver and increment counter once per transition per receiver."""
+    success_key = f"{transition_key}:{url}"
+    async with app_state.lock:
+        if success_key in app_state.delivery_success_keys:
+            return
+
     success = await deliver_to_url(session, url, payload)
     if success:
-        app_state.webhook_deliveries += 1
+        async with app_state.lock:
+            if success_key not in app_state.delivery_success_keys:
+                app_state.delivery_success_keys.add(success_key)
+                app_state.webhook_deliveries += 1
 
 
 def _build_slack_payload(alert: Alert, event_type: str, username: str) -> dict:

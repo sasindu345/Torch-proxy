@@ -30,29 +30,31 @@ async def monitoring_loop(app_state: AppState, session: aiohttp.ClientSession) -
 
     while True:
         try:
-            # Read interval fresh each cycle so config changes apply immediately
-            interval = app_state.check_interval_seconds
-            await asyncio.sleep(interval)
-
-            # Get current proxy list
-            proxies = list(app_state.proxies.values())
+            # Read interval + snapshot pool fresh each cycle so config changes apply immediately
+            async with app_state.lock:
+                interval = app_state.check_interval_seconds
+                proxies = list(app_state.proxies.values())
+                timeout_ms = app_state.request_timeout_ms
             if not proxies:
+                # Keep this short so newly loaded proxies/config are picked up quickly.
+                await asyncio.sleep(1)
                 continue
 
             # Probe all proxies
-            timeout_ms = app_state.request_timeout_ms
             await probe_all(session, proxies, timeout_ms)
 
             # Update metrics
-            app_state.total_checks += len(proxies)
-
-            # Evaluate alert conditions
-            event_type, alert = evaluate_alerts(app_state)
+            async with app_state.lock:
+                app_state.total_checks += len(proxies)
+                # Evaluate alert conditions
+                event_type, alert = evaluate_alerts(app_state)
 
             # Dispatch webhook if there's a state transition
             if event_type and alert:
                 logger.info(f"Alert event: {event_type} — {alert.alert_id}")
                 await dispatch_event(session, app_state, event_type, alert)
+
+            await asyncio.sleep(interval)
 
         except asyncio.CancelledError:
             logger.info("Background monitor cancelled")

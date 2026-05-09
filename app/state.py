@@ -5,7 +5,7 @@ All data lives here — no database, no persistence.
 
 from __future__ import annotations
 
-import threading
+import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Optional
@@ -76,7 +76,7 @@ class AppState:
     """
 
     def __init__(self):
-        self.lock = threading.Lock()
+        self.lock = asyncio.Lock()
 
         # Config
         self.check_interval_seconds: int = 30
@@ -98,6 +98,8 @@ class AppState:
         # Metrics
         self.total_checks: int = 0
         self.webhook_deliveries: int = 0
+        # Dedup successful deliveries per transition per receiver
+        self.delivery_success_keys: set[str] = set()
 
         # Monitor control
         self.monitor_task = None
