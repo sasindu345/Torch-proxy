@@ -44,19 +44,21 @@ async def load_proxies(request: Request):
 
         for url in proxy_urls:
             proxy_id = _extract_proxy_id(url)
+            if proxy_id in state.proxies:
+                # Proxy already exists in the pool; do not overwrite its history or status
+                continue
             proxy = ProxyEntry(id=proxy_id, url=url, status="pending")
             state.proxies[proxy_id] = proxy
             new_proxies.append(proxy)
 
-        # If we replaced the pool and there's an active alert,
-        # re-evaluate immediately — the old failed proxies are gone
-        if replace:
-            event_type, alert = evaluate_alerts(state)
-            if event_type and alert:
-                session = request.app.state.http_session
-                task = asyncio.create_task(dispatch_event(session, state, event_type, alert))
-                state.dispatch_tasks.add(task)
-                task.add_done_callback(state.dispatch_tasks.discard)
+        # Re-evaluate alerts immediately — appending new proxies might drop
+        # the failure rate below threshold, or replacing proxies might clear failures.
+        event_type, alert = evaluate_alerts(state)
+        if event_type and alert:
+            session = request.app.state.http_session
+            task = asyncio.create_task(dispatch_event(session, state, event_type, alert))
+            state.dispatch_tasks.add(task)
+            task.add_done_callback(state.dispatch_tasks.discard)
 
         # Sync active alert with new pool state
         state.sync_active_alert_with_pool()

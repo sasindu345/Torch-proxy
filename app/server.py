@@ -38,8 +38,7 @@ async def lifespan(app: FastAPI):
     # Disable SSL verification at connector level (capture servers may use self-signed certs).
     connector = aiohttp.TCPConnector(
         ssl=False,
-        family=socket.AF_INET,
-        limit=100,
+        limit=0,
         enable_cleanup_closed=True,
     )
     session = aiohttp.ClientSession(connector=connector)
