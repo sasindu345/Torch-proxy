@@ -14,7 +14,10 @@ router = APIRouter()
 
 @router.post("/integrations")
 async def register_integration(request: Request):
-    body = await request.json()
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse(content={"error": "Malformed JSON"}, status_code=400)
 
     integ_type = body.get("type")
     webhook_url = body.get("webhook_url")
@@ -39,7 +42,8 @@ async def register_integration(request: Request):
         username=body.get("username", "ProxyWatch"),
         events=body.get("events", ["alert.fired", "alert.resolved"]),
     )
-    state.integrations.append(integration)
+    async with state.lock:
+        state.integrations.append(integration)
 
     return JSONResponse(
         content={

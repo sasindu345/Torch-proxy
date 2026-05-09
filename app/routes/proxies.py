@@ -24,20 +24,24 @@ def _extract_proxy_id(url: str) -> str:
 
 @router.post("/proxies")
 async def load_proxies(request: Request):
-    body = await request.json()
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse(content={"error": "Malformed JSON"}, status_code=400)
 
     proxy_urls = body.get("proxies", [])
     replace = body.get("replace", False)
 
-    if replace:
-        state.proxies.clear()
-
     new_proxies = []
-    for url in proxy_urls:
-        proxy_id = _extract_proxy_id(url)
-        proxy = ProxyEntry(id=proxy_id, url=url, status="pending")
-        state.proxies[proxy_id] = proxy
-        new_proxies.append(proxy)
+    async with state.lock:
+        if replace:
+            state.proxies.clear()
+
+        for url in proxy_urls:
+            proxy_id = _extract_proxy_id(url)
+            proxy = ProxyEntry(id=proxy_id, url=url, status="pending")
+            state.proxies[proxy_id] = proxy
+            new_proxies.append(proxy)
 
     return JSONResponse(
         content={
@@ -53,70 +57,74 @@ async def load_proxies(request: Request):
 
 @router.get("/proxies")
 async def get_proxies():
-    proxies = list(state.proxies.values())
-    total = len(proxies)
-    up_count = sum(1 for p in proxies if p.status == "up")
-    down_count = sum(1 for p in proxies if p.status == "down")
-    failure_rate = (down_count / total) if total > 0 else 0.0
+    async with state.lock:
+        proxies = list(state.proxies.values())
+        total = len(proxies)
+        up_count = sum(1 for p in proxies if p.status == "up")
+        down_count = sum(1 for p in proxies if p.status == "down")
+        failure_rate = (down_count / total) if total > 0 else 0.0
 
-    return {
-        "total": total,
-        "up": up_count,
-        "down": down_count,
-        "failure_rate": round(failure_rate, 4),
-        "proxies": [
-            {
-                "id": p.id,
-                "url": p.url,
-                "status": p.status,
-                "last_checked_at": p.last_checked_at,
-                "consecutive_failures": p.consecutive_failures,
-            }
-            for p in proxies
-        ],
-    }
+        return {
+            "total": total,
+            "up": up_count,
+            "down": down_count,
+            "failure_rate": round(failure_rate, 4),
+            "proxies": [
+                {
+                    "id": p.id,
+                    "url": p.url,
+                    "status": p.status,
+                    "last_checked_at": p.last_checked_at,
+                    "consecutive_failures": p.consecutive_failures,
+                }
+                for p in proxies
+            ],
+        }
 
 
 @router.get("/proxies/{proxy_id}")
 async def get_proxy(proxy_id: str):
-    proxy = state.proxies.get(proxy_id)
-    if proxy is None:
-        return JSONResponse(
-            content={"error": f"Proxy '{proxy_id}' not found"},
-            status_code=404,
-        )
+    async with state.lock:
+        proxy = state.proxies.get(proxy_id)
+        if proxy is None:
+            return JSONResponse(
+                content={"error": f"Proxy '{proxy_id}' not found"},
+                status_code=404,
+            )
 
-    return {
-        "id": proxy.id,
-        "url": proxy.url,
-        "status": proxy.status,
-        "last_checked_at": proxy.last_checked_at,
-        "consecutive_failures": proxy.consecutive_failures,
-        "total_checks": proxy.total_checks,
-        "uptime_percentage": proxy.uptime_percentage,
-        "history": [
-            {"checked_at": h.checked_at, "status": h.status}
-            for h in proxy.history
-        ],
-    }
+        return {
+            "id": proxy.id,
+            "url": proxy.url,
+            "status": proxy.status,
+            "last_checked_at": proxy.last_checked_at,
+            "consecutive_failures": proxy.consecutive_failures,
+            "total_checks": proxy.total_checks,
+            "uptime_percentage": proxy.uptime_percentage,
+            "history": [
+                {"checked_at": h.checked_at, "status": h.status}
+                for h in proxy.history
+            ],
+        }
 
 
 @router.get("/proxies/{proxy_id}/history")
 async def get_proxy_history(proxy_id: str):
-    proxy = state.proxies.get(proxy_id)
-    if proxy is None:
-        return JSONResponse(
-            content={"error": f"Proxy '{proxy_id}' not found"},
-            status_code=404,
-        )
+    async with state.lock:
+        proxy = state.proxies.get(proxy_id)
+        if proxy is None:
+            return JSONResponse(
+                content={"error": f"Proxy '{proxy_id}' not found"},
+                status_code=404,
+            )
 
-    return [
-        {"checked_at": h.checked_at, "status": h.status}
-        for h in proxy.history
-    ]
+        return [
+            {"checked_at": h.checked_at, "status": h.status}
+            for h in proxy.history
+        ]
 
 
 @router.delete("/proxies")
 async def delete_proxies():
-    state.proxies.clear()
+    async with state.lock:
+        state.proxies.clear()
     return Response(status_code=204)

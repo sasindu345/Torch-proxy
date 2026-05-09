@@ -14,7 +14,10 @@ router = APIRouter()
 
 @router.post("/webhooks")
 async def register_webhook(request: Request):
-    body = await request.json()
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse(content={"error": "Malformed JSON"}, status_code=400)
 
     url = body.get("url")
     if not url:
@@ -25,7 +28,8 @@ async def register_webhook(request: Request):
 
     webhook_id = f"wh-{uuid.uuid4().hex[:6]}"
     webhook = Webhook(webhook_id=webhook_id, url=url)
-    state.webhooks.append(webhook)
+    async with state.lock:
+        state.webhooks.append(webhook)
 
     return JSONResponse(
         content={
