@@ -98,6 +98,12 @@ async def deliver_to_url(
                 if 200 <= resp.status < 300:
                     logger.info(f"Webhook delivered to {url} (status={resp.status}) on attempt {attempt}")
                     return True, ""
+                if resp.status in (301, 302, 303, 307, 308):
+                    redirect_url = resp.headers.get("Location")
+                    if redirect_url:
+                        logger.info(f"Following redirect from {url} to {redirect_url}")
+                        url = redirect_url
+                        continue
                 last_error = f"HTTP {resp.status}"
                 if resp.status not in TRANSIENT_CODES:
                     logger.warning(
