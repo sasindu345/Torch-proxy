@@ -1,21 +1,29 @@
-# Torch-proxy
+# Torch-proxy 🌐
 
-ProxyMaze API service (FastAPI) with CI/CD and EC2 hosting setup.
+**Torch-proxy** is a high-performance **Proxy Pool Manager & Health Evaluator Service** built with **FastAPI** and **asyncio/aiohttp**. It is designed to ingest a dynamic pool of HTTP proxies, continuously probe their health in the background, and fire real-time alerts and webhooks when failure thresholds are breached.
 
-## Current status
+Developed as a submission for the **ProxyMaze** challenge, it features sub-second failure alerting, thread-safe global state concurrency, and a resilient, guaranteed-order webhook delivery engine with exponential backoff retries.
 
-- Core API + monitoring implemented.
-- Evaluator-focused behavior validated with curl.
-- CI workflow added.
-- Auto deploy to EC2 enabled on push to `main` (manual trigger kept as backup).
+---
 
-## Submission Ready
+## 🚀 Key Features
 
-- Public Base URL: `https://proxymazegmora.duckdns.org`
-- Health endpoint: `https://proxymazegmora.duckdns.org/health`
-- Config endpoint: `https://proxymazegmora.duckdns.org/config`
-- HTTPS enabled with Let's Encrypt certificate.
-- CI/CD: push to `main` triggers CI + deploy automatically.
+- **Concurrent Background Probing**: Uses asynchronous `aiohttp` HTTP/HTTPS probing to evaluate proxy statuses continuously without blocking incoming API requests.
+- **Fail-Safe State Management**: Centralized thread-safe locks manage interactions between background monitoring and API endpoints.
+- **Alert Lifecycle Engine**: Fires a single active alert when proxy failure rates breach the threshold (`>= 20%`), resolving automatically when failure rates drop, and preserving order history across re-breaches.
+- **Guaranteed Webhook Delivery**: Sequential webhook delivery (e.g., `alert.fired` followed by `alert.resolved`) featuring exponential backoff retries on remote receiver failures (`5xx`).
+- **Slack & Discord Integrations**: Out-of-the-box support for rich Slack attachments and Discord embeds.
+- **Full CI/CD Pipeline**: GitHub Actions workflows for continuous integration testing and automated deployments to AWS EC2 via systemd and Nginx.
+
+---
+
+## 📍 Quick Links & Submission Status
+
+- **Public Base URL**: [https://proxymazegmora.duckdns.org](https://proxymazegmora.duckdns.org)
+- **Health Endpoint**: [https://proxymazegmora.duckdns.org/health](https://proxymazegmora.duckdns.org/health)
+- **Config Endpoint**: [https://proxymazegmora.duckdns.org/config](https://proxymazegmora.duckdns.org/config)
+- **Deployment**: Automatic CI/CD is configured to deploy to AWS EC2 on any push to the `main` branch.
+- **TLS/HTTPS**: Fully enabled and secured via Let's Encrypt.
 
 Quick verification:
 
@@ -32,7 +40,27 @@ ProxyMaze utilizes an event-driven **FastAPI** + **aiohttp** architecture built 
 - **Event-Driven Monitoring**: Mutating the proxy pool (`POST /proxies` or `DELETE`) triggers an `asyncio.Event`, forcing immediate re-evaluations to satisfy sub-second alert threshold requirements.
 - **Strict Webhook Serializer**: Webhook deliveries utilize a per-URL lock (`url_locks`) combined with custom `301 Redirect` handling to guarantee that `alert.fired` and `alert.resolved` payloads arrive sequentially and with their `POST` bodies intact, bypassing default `aiohttp` redirect payload drops.
 
+---
 
+## 🛠️ API Endpoint Reference
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/health` | `GET` | Health check endpoint. Returns `{"status": "ok"}`. |
+| `/config` | `GET` | Retrieve the current runtime configuration parameters. |
+| `/config` | `POST` | Update configuration parameters (e.g. `check_interval_seconds`, `request_timeout_ms`). |
+| `/proxies` | `GET` | List all tracked proxies, their health status, consecutive failures, and check counts. |
+| `/proxies` | `POST` | Add, append, or replace proxies in the active monitoring pool. |
+| `/proxies/{id}` | `GET` | Retrieve detailed status for a specific proxy. |
+| `/proxies/{id}/history` | `GET` | Retrieve list of last probe results/history for a specific proxy. |
+| `/proxies` | `DELETE` | Clear the proxy pool. |
+| `/alerts` | `GET` | View active and archived failure alerts. |
+| `/webhooks` | `POST` | Subscribe a destination URL to alert lifecycle events. |
+| `/integrations` | `POST` | Configure native Slack and Discord webhook integrations. |
+| `/metrics` | `GET` | Fetch performance counters and pool monitoring statistics. |
+| `/debug` | `GET` | Remote diagnostic endpoints to inspect active state locks and webhook delivery logs. |
+
+---
 
 ## Secrets and Variables (Team Guide)
 
